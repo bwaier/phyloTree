@@ -1,0 +1,283 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri May 13 23:15:57 2016
+
+@author: bradwaier
+"""
+
+from Tkinter import *
+import os
+import urllib2
+from urllib2 import HTTPError
+import json
+from Bio import Entrez, SeqIO
+
+class PhyloTree:
+    pass
+
+class Sequence:
+    """ The Sequence class """
+
+    seq = str()
+    #-------------------------------------------------------------------------
+    def __init__(self, name, acc_id):
+        self.name = name
+        self.acc_id = acc_id
+
+    #-------------------------------------------------------------------------
+    def get_motif_index(self, motif):
+
+        k = len(motif)
+        index_list = []
+        
+        for i in range(len(seq) - k+1):
+            if seq[i:k] == motif:
+                index_list.append(i)
+
+        return index_list
+            
+        
+###############################################################################
+
+
+class GUI(Frame):
+    """ A GUI Application """
+
+    #-------------------------------------------------------------------------
+    def __init__(self, root):
+        """ constructor """
+
+        self.root = root
+        self.accession_ids, self.species_list = [], []
+        self.species_obj_list = []
+        
+        Frame.__init__(self, self.root)
+        self.root.title("Phylogenetic Tree Builder")
+        self.root.configure(bg='gray')
+                
+        self.build_method_frame()
+        self.build_species_frame()
+        self.build_buttons_frame()
+    
+    #-------------------------------------------------------------------------
+    def get_species_seq(self, listbox_selection):
+        
+        print listbox_selection
+        species_obj_list = []
+        
+        #At this point we're going to see if the sequences from the listbox 
+        #are downloaded. If they're not, then we'll download and save them.
+        
+        
+        for i in range(len(listbox_selection)):
+            
+            selection_num = listbox_selection[i]
+            name = self.species_list[selection_num]
+            acc_id = self.accession_ids[selection_num]
+            
+            #if the file is not downloaded
+            if not os.path.isfile(name):
+                
+                #download file and create species object
+                try:
+                    
+                    Entrez.email = "bwaier@yahoo.com"
+                    net_handle = Entrez.efetch(db="nucleotide", 
+                    id= acc_id, rettype="gb", retmode="text")
+                        
+                    out_handle = open(name, "w")
+                    out_handle.write(net_handle.read())
+                    out_handle.close()
+                    net_handle.close()
+                    print "Species %s saved" % name
+                    
+                    
+                    record = SeqIO.parse(open(name), 'fasta')
+                    species = Sequence(name, acc_id)
+                    for line in record:
+                        
+                        species.seq = line.seq.tostring()
+                    
+                    
+                    species_obj_list.append(species)
+                    
+                    
+                    
+                except HTTPError:
+                        print "No File Exists"
+                
+                    
+            else:
+                #else open the file and get species info and make obj
+                record = SeqIO.read(name, "genbank")
+                species = Sequence(name, acc_id)
+                species.seq = record.seq
+                species_obj_list.append(species)
+                        
+           
+        return species_obj_list
+        
+
+    #-------------------------------------------------------------------------
+    def needleman_wunsch(self, seq1, seq2):
+        """ Returns optimal alignment score between two sequences """
+        
+        rows, cols = len(seq1)+1, len(seq2)+1
+        matrix = []
+        match, gap_penalty, mismatch = 1, -1, -1
+        
+        for i in range(rows):
+            matrix += [[0]*cols]
+
+        #initializing first row and columns
+        for i in range(1, rows):
+            matrix[i][0] = matrix[i-1][0] + gap_penalty
+
+        for j in range(1, cols):
+            matrix[0][j] = matrix[0][j-1] + gap_penalty
+            
+
+        def match_score(x, y):
+            
+            if x == y:
+                return match
+
+            else:
+                return mismatch
+            
+        for i in range(1, rows):
+            for j in range(1, cols):
+
+                diagonal = matrix[i-1][j-1] + match_score(seq1[i-1], seq2[j-1])
+                right = matrix[i][j-1] + gap_penalty
+                bottom = matrix[i-1][j] + gap_penalty
+
+                matrix[i][j] = max(diagonal, right, bottom)
+
+
+        score = matrix[i][j]
+        return score
+    
+
+    #-------------------------------------------------------------------------
+    def build_distance_matrix(self, event):
+
+
+        widget = event.widget
+        #this is a list of ints which corresponds to the items in listbox
+        selection = list(widget.curselection())
+        selection = map(int, selection)
+          
+        #list of species objects
+        species_objs = self.get_species_seq(selection)
+        size = len(species_objs)
+        distance_matrix = []
+        
+        for i in range(size):
+            distance_matrix += [[0]*size]
+   
+        for i in range(1, size):
+            for j in range(size-1):
+                
+                #returns alignment score for each sequence
+                distance_matrix[i][j] = self.needleman_wunsch(species_objs[i].seq,
+                                      species_objs[j].seq)
+                                      
+#        for i in range(len(distance_matrix)):
+#            print distance_matrix[i]
+                                      
+        #return distance_matrix
+
+        
+    
+    #-------------------------------------------------------------------------
+    def display_tree(self):
+
+
+        #distance_matrix = self.build_distance_matrix()
+        ##build tree based on distance matrix
+        pass
+
+    #-------------------------------------------------------------------------
+    def exit_program(self):
+
+        root.destroy()
+        
+    #-------------------------------------------------------------------------
+    def build_method_frame(self):
+        
+        method_frame = LabelFrame(self.root, bg = 'gray', width=20)
+        method_frame.grid(row=0, column=1, sticky='n', padx=25, pady=20)
+        Label(method_frame, text="Method").grid(row=0, column=1)
+        checkbutton1 = Checkbutton(method_frame, text="Needleman-Wunsch")
+        checkbutton1.grid(row=1, column=1, sticky='w', padx=20)
+        
+
+        
+    #-------------------------------------------------------------------------
+    def build_species_frame(self):
+
+        species_frame = Frame(self.root, bg='gray')
+        Label(species_frame, text="Species").grid(row=0, column=0)
+        species_frame.grid(row=0, column=0, padx=10, pady=20)
+
+        scrollbar = Scrollbar(species_frame, orient=VERTICAL)
+        listbox = Listbox(species_frame, selectmode=MULTIPLE)
+        
+        scrollbar.config(command=listbox.yview, orient=VERTICAL)
+        scrollbar.grid(row=0, column=1, sticky='ns', rowspan=2)
+        
+        listbox.grid(row=1, column=0)
+        listbox.config(yscrollcommand=scrollbar.set)
+
+        #opens up species file and gets species names as well as their accession
+        #ids and stores them in separate lists
+        
+        
+        try:
+            with open("microbe_species.txt",'r') as species_file:
+                for line in species_file:
+                    line = line.rstrip('\n')
+                    index = line.find('>')
+                    self.species_list.append(line[:index])
+                    self.accession_ids.append(line[index:len(line)])
+                
+                                            
+        except IOError:
+           print "No File Found"
+            
+        for item in self.species_list:
+            listbox.insert(END, item)
+            
+        listbox.bind("<<ListboxSelect>>", self.build_distance_matrix)
+
+        
+                
+    #-------------------------------------------------------------------------
+    def build_buttons_frame(self):
+
+        buttons_frame = LabelFrame(self.root, bg = 'gray', width=30)
+        buttons_frame.grid(row=0, column=1)
+        
+        buildbutton = Button(buttons_frame, text="Build Tree", command=self.display_tree)
+        buildbutton.grid(row=3, column=1, padx=25, sticky='w')
+
+        quitbutton = Button(buttons_frame, text="Quit", command=self.exit_program)
+        quitbutton.grid(row=3, column=2)
+
+    
+
+###############################################################################
+if __name__ == "__main__":
+    
+    root = Tk()
+    app = GUI(root)
+    root.mainloop()
+
+
+
+    
+    
+    
+
+
